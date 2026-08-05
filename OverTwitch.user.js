@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.2.0
+// @version      1.2.1
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Opens automatically, settings apply to every channel, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -66,7 +66,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.2.0';
+  const VERSION = '1.2.1';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -255,6 +255,8 @@
     liveChat: 'section.chat-room, .chat-room__content',
     vodChat: '.video-chat',
     pausedResume: '.chat-paused-footer--button',
+    scrollers: '.chat-list--default .scrollable-area, .video-chat__message-list-wrapper',
+    messageContainer: '.chat-scrollable-area__message-container, .video-chat__message-list-wrapper',
     pausedFooter: '.chat-paused-footer',
     claimable: '.claimable-bonus__icon',
   };
@@ -728,6 +730,8 @@
       pendingUntil: Date.now() + 20000, // grace window for chat to finish rendering
       reattachedAt: [],   // timestamps, for the re-attach circuit breaker
       claimTimer: 0,
+      messageObserver: null,
+      observedContainer: null,
       resumeTimer: 0,
       lastFrameHeight: 0,
       modals: [],
@@ -841,6 +845,8 @@
 
     const resumeIfPaused = () => {
       if (frame.classList.contains('otw-hover')) return; // they may be reading back
+      // React can swap the message container out; keep following it.
+      if (!state.observedContainer?.isConnected) watchForNewMessages();
 
       /*
        * The player is often still unsized when the overlay opens on boot, so
@@ -867,6 +873,41 @@
         const resume = host.querySelector(SEL.pausedResume) || host.querySelector(SEL.pausedFooter);
         if (resume) resume.click();
       }
+      stickToBottom();
+    };
+
+    /*
+     * Keep the view on the newest message.
+     *
+     * Measured: with chat in the overlay, new messages are appended (the
+     * scroller's content grows) but its scrollTop stays put, so the visible
+     * window keeps showing the same old messages — which is exactly what
+     * "chat is frozen" looks like. Twitch is not paused while this happens,
+     * so nothing in its own resume path applies; the view simply has to be
+     * driven. Setting scrollTop sticks — nothing resets it.
+     */
+    const stickToBottom = () => {
+      if (frame.classList.contains('otw-hover')) return; // reading back: leave them alone
+      try { twitchScroller()?.scrollToBottom?.(); } catch (e) { /* fall back below */ }
+      for (const el of host.querySelectorAll(SEL.scrollers)) {
+        if (el.scrollHeight - el.clientHeight - el.scrollTop > 2) el.scrollTop = el.scrollHeight;
+      }
+    };
+
+    /*
+     * Follow on arrival rather than on a timer, so chat moves as it happens
+     * instead of catching up in visible jumps. childList only, on the message
+     * container itself — one callback per batch of messages, not the
+     * subtree-wide storm the old auto-claim observer caused.
+     */
+    const watchForNewMessages = () => {
+      const container = host.querySelector(SEL.messageContainer);
+      if (!container || container === state.observedContainer) return !!container;
+      state.messageObserver?.disconnect();
+      state.observedContainer = container;
+      state.messageObserver = new MutationObserver(stickToBottom);
+      state.messageObserver.observe(container, { childList: true });
+      return true;
     };
 
     /* --- enable / disable ----------------------------------------------
@@ -899,12 +940,16 @@
           return false;
         }
         state.pendingUntil = 0;
+        watchForNewMessages();
         nudgeRemeasure();
         requestAnimationFrame(() => { nudgeRemeasure(); resumeIfPaused(); });
       } else {
         state.pendingUntil = 0;
         document.body.classList.remove('otw-on');
         frame.classList.remove('otw-hover');
+        state.messageObserver?.disconnect();
+        state.messageObserver = null;
+        state.observedContainer = null;
         restoreChat();
         setAutoClaim(false);
       }
@@ -972,6 +1017,7 @@
       if (state.destroyed) return;
       state.destroyed = true;
 
+      state.messageObserver?.disconnect();
       clearInterval(state.claimTimer);
       clearInterval(state.resumeTimer);
       restoreChat();
