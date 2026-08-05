@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.1.2
+// @version      1.1.3
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Opens automatically, settings apply to every channel, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -66,7 +66,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.1.2';
+  const VERSION = '1.1.3';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -730,6 +730,7 @@
       reattachedAt: [],   // timestamps, for the re-attach circuit breaker
       claimTimer: 0,
       resumeTimer: 0,
+      lastFrameHeight: 0,
       claimObserver: null,
       modals: [],
       destroyed: false,
@@ -806,8 +807,33 @@
      * overlay the user may be deliberately reading back, and yanking them to
      * the newest message would be worse than leaving it paused.
      */
+    /*
+     * Prod Twitch into re-measuring the chat viewport. Whether its scroller
+     * listens on window resize or a ResizeObserver, both are covered: the
+     * event fires the former, and briefly perturbing the frame's height
+     * changes the observed box for the latter.
+     */
+    const nudgeRemeasure = () => {
+      window.dispatchEvent(new Event('resize'));
+      const bottom = frame.style.bottom;
+      frame.style.bottom = `calc(${bottom || '0%'} + 1px)`;
+      void frame.offsetHeight; // force the intermediate layout to be observed
+      frame.style.bottom = bottom;
+    };
+
     const resumeIfPaused = () => {
       if (frame.classList.contains('otw-hover')) return; // they may be reading back
+
+      /*
+       * The player is often still unsized when the overlay opens on boot, so
+       * chat can be handed a box at the CSS minimum and size up a moment later.
+       * Re-measure whenever our height actually changes — this also covers
+       * entering and leaving fullscreen.
+       */
+      if (frame.clientHeight !== state.lastFrameHeight) {
+        state.lastFrameHeight = frame.clientHeight;
+        nudgeRemeasure();
+      }
 
       // Tell React we want to follow again...
       const resume = host.querySelector(SEL.pausedResume) || host.querySelector(SEL.pausedFooter);
@@ -842,15 +868,23 @@
       if (persist) store.set(ENABLED_KEY, on);
       overlayEnabled = on; // the user's intent, which survives navigation
       if (on) {
+        /*
+         * Show the frame BEFORE the chat node moves into it. Twitch's live chat
+         * list is virtualised and measures its viewport as it is inserted; a
+         * `display: none` container measures zero, it decides no rows fit, and
+         * nothing afterwards makes it measure again — chat then sits frozen
+         * while messages pile up unrendered. VOD chat is not virtualised the
+         * same way, which is why VODs looked fine and live did not.
+         */
+        document.body.classList.add('otw-on');
+        applyAll(state.settings); // size and position it before anything measures
         if (!attachChat()) {
-          // Never leave an empty translucent box floating on the video.
-          document.body.classList.remove('otw-on');
+          document.body.classList.remove('otw-on'); // never leave an empty box on the video
           return false;
         }
         state.pendingUntil = 0;
-        document.body.classList.add('otw-on');
-        applyAll(state.settings);
-        requestAnimationFrame(resumeIfPaused);
+        nudgeRemeasure();
+        requestAnimationFrame(() => { nudgeRemeasure(); resumeIfPaused(); });
       } else {
         state.pendingUntil = 0;
         document.body.classList.remove('otw-on');
