@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      2.0.0
+// @version      2.0.1
 // @description  Twitch chat on top of the player: transparent message text when idle, full solid chat on hover. Drag, resize, restyle. Works in fullscreen and theater, live and VODs. Opens automatically, settings apply everywhere, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -54,7 +54,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '2.0.0';
+  const VERSION = '2.0.1';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -349,13 +349,20 @@
   html:not(.otw-hover) .chat-input { display: none !important; }
   html:not(.otw-hover) .chat-line__icons { display: none !important; }
 
-  html:not(.otw-hover) .chat-room__content,
-  html:not(.otw-hover) .chat-list--default { background: var(--otw-bg) !important; }
+  /* section.chat-room is the element that actually paints Twitch's solid chat
+     background — .chat-room__content and .chat-list--default above and below it
+     are already transparent, which is why styling only those left chat opaque.
+     Clear every layer and let exactly one carry the tint, so a translucent
+     colour is not stacked on itself. */
+  html:not(.otw-hover) .chat-room,
+  html:not(.otw-hover) .chat-list--default,
+  html:not(.otw-hover) .chat-scrollable-area__message-container { background: transparent !important; }
+  html:not(.otw-hover) .chat-room__content { background: var(--otw-bg) !important; }
 
   /* Hovering brings the real, solid chat back. --otw-solid is pushed in from
      the parent page, because the popout document defines Twitch's theme
      variables below <html>, so reading them at this level yields white. */
-  html.otw-hover, html.otw-hover body,
+  html.otw-hover, html.otw-hover body, html.otw-hover .chat-room,
   html.otw-hover .chat-room__content { background: var(--otw-solid, #18181b) !important; }
 
   html:not(.otw-hover) .scrollable-area { scrollbar-width: none; }
