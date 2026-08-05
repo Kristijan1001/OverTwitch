@@ -7,9 +7,6 @@ nothing in the way. Mouse over it and the actual chat comes back, solid, with th
 badges, viewer cards, mod actions and everything else. It shows Twitch's own chat rather than a
 clone, so **nothing is faked** — see *How it works* for how live and VODs differ.
 
-This is a userscript port of [Anu Twitch Chat Overlay](https://github.com/akhanubis/anu_twitch_chat_overlay)
-by [akhanubis](https://github.com/akhanubis), rebuilt from scratch as one dependency-free file.
-
 ---
 
 ## Install
@@ -59,8 +56,6 @@ video), with **timestamps hidden** and **auto-claim on**.
 
 ## How it works
 
-Same architecture as the original, because the original's works:
-
 - **Live** — an `<iframe>` pointing at `twitch.tv/popout/<channel>/chat`, floated over the
   player and restyled from the outside. Same origin, so its document is fully reachable.
   Twitch's chat page owns its whole document there: it lays out normally and scrolls itself.
@@ -71,19 +66,14 @@ Version 1.x moved the live chat node too, on the theory that it was strictly bet
 path, no second connection, third-party emotes guaranteed. It isn't. Twitch's live chat drives
 its own auto-scroll against the box it was mounted in, so hosting it in a small repositioned
 container left it appending messages the viewport never scrolled to, which reads as chat being
-frozen. VODs were unaffected — exactly the live/VOD split the original's own code implies.
+frozen. VOD chat is a far simpler component and was unaffected.
 
 The cost of the iframe is a second chat connection, and third-party emote add-ons only show up
-if they also run on popout chat. That's the trade the original makes by default.
+if they also run on popout chat.
 
-Other differences from the extension: one file with no build step and no dependencies
-(MicroModal and iro.js are replaced by a small modal and native colour inputs), plain JSON
-settings instead of underscore-joined strings, Pointer Events with pointer capture for
-drag/resize so nothing leaks across navigations, and selectors updated for Twitch's current DOM.
+One file, no build step, no dependencies. Settings are plain JSON; drag and resize use Pointer
+Events with pointer capture, so nothing leaks across navigations.
 
-## Credits
+## Licence
 
-Original design and concept: **Pablo Bianciotto (akhanubis)** —
-[anu_twitch_chat_overlay](https://github.com/akhanubis/anu_twitch_chat_overlay).
-
-ISC licensed, keeping the original copyright notice. See [LICENSE](LICENSE).
+ISC — see [LICENSE](LICENSE). By **Kristijan1001**.

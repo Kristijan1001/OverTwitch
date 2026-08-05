@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      2.1.0
-// @description  Twitch chat on top of the player: transparent message text when idle, full solid chat on hover. Drag, resize, restyle. Works in fullscreen and theater, live and VODs. Opens automatically, settings apply everywhere, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
+// @version      2.1.1
+// @description  Twitch chat on top of the player: transparent message text when idle, full solid chat on hover. Drag, resize, restyle. Works in fullscreen and theater, live and VODs. Opens automatically, settings apply everywhere, auto-claim channel points.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
 // @homepageURL  https://github.com/Kristijan1001/OverTwitch
@@ -22,31 +22,29 @@
 // ==/UserScript==
 
 /*
-  OverTwitch — a single-file userscript port of Anu Twitch Chat Overlay
-  (https://github.com/akhanubis/anu_twitch_chat_overlay) by Pablo Bianciotto
-  (akhanubis), ISC licensed. See LICENSE for both copyright notices.
+  OverTwitch — Twitch chat floated over the video player.
 
-  Architecture — deliberately the same as anu's, because anu's works
-  -----------------------------------------------------------------
+  Architecture
+  ------------
   LIVE -> an <iframe> pointing at twitch.tv/popout/<channel>/chat, floated over
           the player and restyled from the outside. Same origin, so its
           document is fully reachable.
   VOD  -> the real `.video-chat` node is moved into the overlay, because a VOD
           has no popout chat to point an iframe at.
 
-  Version 1.x used the moved-node approach for live too, on the theory that it
-  was strictly better: one code path, no second connection, third-party emotes
+  Version 1.x moved the chat node for live as well, on the theory that it was
+  strictly better: one code path, no second connection, third-party emotes
   guaranteed. It is not better. Twitch's live chat lays itself out and drives
   its own auto-scroll against the box it was mounted in, so hosting it in a
   small repositioned container leaves it appending messages the viewport never
-  scrolls to — which reads as chat being frozen. VODs were unaffected, which is
-  exactly the live/VOD split anu's own code implies. Inside an iframe the chat
-  page owns its whole document, lays out normally and scrolls itself, so there
-  is nothing to fight.
+  scrolls to — which reads as chat being frozen. VODs were unaffected, since
+  VOD chat is a much simpler component. Inside an iframe the chat page owns its
+  whole document, lays out normally and scrolls itself, so there is nothing to
+  fight.
 
   The cost is a second chat connection, and third-party emote add-ons only show
-  up if they also run on popout chat. That is the trade anu makes by default,
-  and chat that works beats chat that is elegant.
+  up if they also run on popout chat. Chat that works beats chat that is
+  elegant.
 */
 
 (function () {
@@ -54,7 +52,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '2.1.0';
+  const VERSION = '2.1.1';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -184,10 +182,13 @@
     paths.map(d => `<path d="${d}"></path>`).join('') + '</svg>';
 
   const ICONS = {
-    chatOn: svg('0 0 32 32', ['M 3 6 L 3 26 L 12.585938 26 L 16 29.414063 L 19.414063 26 L 29 26 L 29 6 Z M 5 8 L 27 8 L 27 24 L 18.585938 24 L 16 26.585938 L 13.414063 24 L 5 24 Z M 9 11 L 9 13 L 23 13 L 23 11 Z M 9 15 L 9 17 L 23 17 L 23 15 Z M 9 19 L 9 21 L 19 21 L 19 19 Z']),
-    chatOff: svg('0 0 32 32', ['M 3 5 L 3 23 L 8 23 L 8 28.078125 L 14.351563 23 L 29 23 L 29 5 Z M 5 7 L 27 7 L 27 21 L 13.648438 21 L 10 23.917969 L 10 21 L 5 21 Z']),
-    gear: svg('0 0 20 20', ['M10 8a2 2 0 100 4 2 2 0 000-4z', 'M9 2h2a2.01 2.01 0 001.235 1.855l.53.22a2.01 2.01 0 002.185-.439l1.414 1.414a2.01 2.01 0 00-.439 2.185l.22.53A2.01 2.01 0 0018 9v2a2.01 2.01 0 00-1.855 1.235l-.22.53a2.01 2.01 0 00.44 2.185l-1.415 1.414a2.01 2.01 0 00-2.184-.439l-.531.22A2.01 2.01 0 0011 18H9a2.01 2.01 0 00-1.235-1.854l-.53-.22a2.009 2.009 0 00-2.185.438L3.636 14.95a2.009 2.009 0 00.438-2.184l-.22-.531A2.01 2.01 0 002 11V9c.809 0 1.545-.487 1.854-1.235l.22-.53a2.009 2.009 0 00-.438-2.185L5.05 3.636a2.01 2.01 0 002.185.438l.53-.22A2.01 2.01 0 009 2zm-4 8l1.464 3.536L10 15l3.535-1.464L15 10l-1.465-3.536L10 5 6.464 6.464 5 10z'], 16),
-    move: svg('0 0 32 32', ['M 16 1.5859375 L 10.292969 7.2929688 L 11.707031 8.7070312 L 15 5.4140625 L 15 15 L 5.4140625 15 L 8.7070312 11.707031 L 7.2929688 10.292969 L 1.5859375 16 L 7.2929688 21.707031 L 8.7070312 20.292969 L 5.4140625 17 L 15 17 L 15 26.585938 L 11.707031 23.292969 L 10.292969 24.707031 L 16 30.414062 L 21.707031 24.707031 L 20.292969 23.292969 L 17 26.585938 L 17 17 L 26.585938 17 L 23.292969 20.292969 L 24.707031 21.707031 L 30.414062 16 L 24.707031 10.292969 L 23.292969 11.707031 L 26.585938 15 L 17 15 L 17 5.4140625 L 20.292969 8.7070312 L 21.707031 7.2929688 L 16 1.5859375 z'], 16),
+    chatOn: svg('0 0 24 24', ['M3 3h18v14h-9l-5 4v-4H3V3z', 'M6 7h12v1.6H6zM6 10.2h12v1.6H6zM6 13.4h8V15H6z']),
+    chatOff: svg('0 0 24 24', ['M3 3h18v14h-9l-5 4v-4H3V3zm1.6 1.6v10.8H8.6v2.4l3-2.4h7.8V4.6H4.6z']),
+    gear: svg('0 0 24 24', [
+      'M12 8.6a3.4 3.4 0 100 6.8 3.4 3.4 0 000-6.8zm0 1.6a1.8 1.8 0 110 3.6 1.8 1.8 0 010-3.6z',
+      'M10.7 2h2.6l.5 2.2 1.6.9 2.1-.8 1.8 2.2-1.4 1.8v1.8l1.4 1.8-1.8 2.2-2.1-.8-1.6.9-.5 2.2h-2.6l-.5-2.2-1.6-.9-2.1.8-1.8-2.2 1.4-1.8V8.3L4.7 6.5l1.8-2.2 2.1.8 1.6-.9z',
+    ], 16),
+    move: svg('0 0 24 24', ['M12 2l3.2 3.2h-2.1v5.7h5.7V8.8L22 12l-3.2 3.2v-2.1h-5.7v5.7h2.1L12 22l-3.2-3.2h2.1v-5.7H5.2v2.1L2 12l3.2-3.2v2.1h5.7V5.2H8.8z'], 16),
   };
 
   const parseRgba = v => {
@@ -610,7 +611,7 @@
       state.claimTimer = setInterval(claimNow, 3000);
     };
 
-    /* --- LIVE: popout chat in an iframe, as anu does --------------------- */
+    /* --- LIVE: popout chat in an iframe ---------------------------------- */
     const mountIframe = () => {
       if (state.iframe) return true;
       const iframe = el('iframe', {
@@ -700,7 +701,7 @@
     const setHover = on => {
       frame.classList.toggle('otw-hover', on);
       state.iframeDoc?.documentElement.classList.toggle('otw-hover', on);
-      if (on) scrollChatToBottom(); // anu's one scroll nudge: jump to newest when you engage
+      if (on) scrollChatToBottom(); // jump to the newest message when you engage
     };
 
     /* --- enable / disable -------------------------------------------------- */
@@ -907,9 +908,9 @@
       title: 'About OverTwitch',
       extraClass: 'otw-about',
       body: [
-        el('p', { html: `A userscript port of <a href="https://github.com/akhanubis/anu_twitch_chat_overlay" target="_blank" rel="noopener">Anu Twitch Chat Overlay</a> by akhanubis.` }),
+        el('p', { html: `Twitch chat over the player — transparent when idle, solid on hover.` }),
         el('p', { html: `Alt+C toggles the overlay. Hover it for the real chat, input, drag bar and resize grips.` }),
-        el('p', { html: `Bugs and requests: <a href="${HOME}/issues" target="_blank" rel="noopener">issue tracker</a>.` }),
+        el('p', { html: `By Kristijan1001. Bugs and requests: <a href="${HOME}/issues" target="_blank" rel="noopener">issue tracker</a>.` }),
       ],
       footer: [el('span', { class: 'otw-version', text: `Version ${VERSION}` }), el('span', { class: 'otw-spacer' }), closeBtn],
     });
