@@ -4,8 +4,8 @@ A single-file userscript that puts Twitch's **real** chat on top of the player.
 
 Mouse away, it's just floating message text over the video — translucent, OLED-friendly,
 nothing in the way. Mouse over it and the actual chat comes back, solid, with the input,
-badges, viewer cards, mod actions and your third-party emotes. Because it moves Twitch's own
-chat node rather than cloning it, **nothing is faked and nothing connects twice**.
+badges, viewer cards, mod actions and everything else. It shows Twitch's own chat rather than a
+clone, so **nothing is faked** — see *How it works* for how live and VODs differ.
 
 This is a userscript port of [Anu Twitch Chat Overlay](https://github.com/akhanubis/anu_twitch_chat_overlay)
 by [akhanubis](https://github.com/akhanubis), rebuilt from scratch as one dependency-free file.
@@ -53,13 +53,8 @@ video), with **timestamps hidden** and **auto-claim on**.
   chat mounted when the right column is collapsed, so you get the full-width video with chat
   floating on top of it. The script never touches Twitch's collapse button.
 - Works on live channels and VODs. Clips, the dashboard and popout chat are skipped.
-- Twitch pauses its own chat scroller whenever it thinks you have scrolled up, and moving chat
-  into a differently sized box can trigger that on its own. While your mouse is off the overlay
-  the script resumes it for you, so idle chat never sits there frozen. While you are hovering it
-  leaves you alone — you may be reading back — and Twitch's own "Chat paused due to scroll"
-  button is right there and works normally.
-- Third-party emote extensions (7TV, BetterTTV, FrankerFaceZ) work automatically, because
-  the overlay shows the same DOM they already decorated.
+- Third-party emote add-ons (7TV, BetterTTV, FrankerFaceZ) appear on live chat only if they
+  also run on `twitch.tv/popout/*/chat`, since that is the page the overlay embeds. Most do.
 - Auto-claim clicks the channel-point bonus while the overlay is on.
 
 ## How it works
