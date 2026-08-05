@@ -1,0 +1,34 @@
+<h2>OverTwitch — Cinematic Chat Overlay for Twitch</h2>
+
+<p><strong>OverTwitch</strong> puts Twitch's <em>real</em> chat on top of the player. With your mouse away it's just floating message text over the video — translucent and OLED-friendly, nothing in the way. Move your mouse over it and the actual chat comes back, solid, with the input, badges, viewer cards and mod actions. Because it relocates Twitch's own chat node instead of copying it, <strong>everything works natively</strong> and chat never connects twice.</p>
+
+<p>A userscript port of <a href="https://github.com/akhanubis/anu_twitch_chat_overlay" rel="nofollow">Anu Twitch Chat Overlay</a> by akhanubis, rebuilt as a single dependency-free file.</p>
+
+<h3>✨ Features</h3>
+<ul>
+  <li><strong>Readable over video, invisible when idle</strong> — translucent background and a configurable text outline when your mouse is away; full solid chat on hover.</li>
+  <li><strong>100% native chat</strong> — real usernames, viewer cards, badges, mod actions, emote tooltips and message sending. Nothing is faked.</li>
+  <li><strong>Third-party emotes just work</strong> — 7TV, BetterTTV and FrankerFaceZ decorate the same DOM the overlay displays.</li>
+  <li><strong>Anchored to the player</strong> — placement is stored as a percentage of the video, so it keeps its position and proportions in theater and fullscreen.</li>
+  <li><strong>Drag &amp; resize</strong> — drag by the top bar, pull any edge or corner.</li>
+  <li><strong>Live-preview settings</strong> — background colour and opacity, font family (including a custom one), size, colour, outline, weight, hide usernames, hide timestamps.</li>
+  <li><strong>Per-channel settings</strong> — every channel remembers its own layout; the last one you apply becomes the default new channels inherit. VODs share their channel's settings.</li>
+  <li><strong>Auto-claim channel points</strong> — optional, clicks the bonus chest for you.</li>
+  <li><strong>Live streams and VODs</strong>, one code path, no iframe.</li>
+</ul>
+
+<h3>🎛️ Controls</h3>
+<ul>
+  <li><strong>💬 button</strong> in the player controls → show/hide the overlay.</li>
+  <li><strong>Alt + C</strong> → toggle the overlay.</li>
+  <li><strong>Hover</strong> the overlay → full chat with input, drag bar, resize grips and ⚙ settings.</li>
+</ul>
+
+<h3>ℹ️ Notes</h3>
+<ul>
+  <li>Works on <code>twitch.tv</code> channel pages and VODs. Requires Tampermonkey or Violentmonkey.</li>
+  <li><strong>Keep the chat sidebar expanded.</strong> Twitch unmounts its chat component when the right column is collapsed, which no userscript can prevent — so enabling the overlay re-expands it. In fullscreen and theater the column is off-screen anyway.</li>
+  <li>Usernames and timestamps hide only while idle, so hovering always gives you clickable names back.</li>
+</ul>
+
+<p><em>ISC licensed. Original concept by Pablo Bianciotto (akhanubis); userscript port by Kristijan1001.</em></p>
