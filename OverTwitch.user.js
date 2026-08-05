@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      2.0.2
+// @version      2.1.0
 // @description  Twitch chat on top of the player: transparent message text when idle, full solid chat on hover. Drag, resize, restyle. Works in fullscreen and theater, live and VODs. Opens automatically, settings apply everywhere, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -54,7 +54,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '2.0.2';
+  const VERSION = '2.1.0';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -137,8 +137,27 @@
     return out;
   };
 
-  const loadSettings = async () => mergeSettings(await store.get(SETTINGS_KEY, null));
-  const saveSettings = settings => store.set(SETTINGS_KEY, settings);
+  /*
+   * Settings saved by 1.x predate the transparent-by-default look and keep
+   * winning over it, so the overlay stays tinted or loses its outline no matter
+   * what the defaults say. Reset just those two appearance values once, keeping
+   * position, font and the toggles, and mark the result so it happens only the
+   * one time.
+   */
+  const SCHEMA = 2;
+  const migrate = stored => {
+    if (!stored || stored.schema === SCHEMA) return stored;
+    const fixed = { ...stored, schema: SCHEMA, background: DEFAULTS.background };
+    fixed.font = { ...(stored.font || {}), outline: DEFAULTS.font.outline };
+    log('reset background and outline to the current defaults (one-time)');
+    // mergeSettings only keeps known keys, so re-stamp the marker or this runs
+    // on every load and no background could ever be kept.
+    store.set(SETTINGS_KEY, { ...mergeSettings(fixed), schema: SCHEMA });
+    return fixed;
+  };
+
+  const loadSettings = async () => mergeSettings(migrate(await store.get(SETTINGS_KEY, null)));
+  const saveSettings = settings => store.set(SETTINGS_KEY, { ...settings, schema: SCHEMA });
 
   /* ------------------------------------------------------------------ *
    * Helpers
@@ -361,7 +380,15 @@
    * (0,1,2) for the blanket rule, so it wins despite both being !important.
    */
   html:not(.otw-hover) body,
-  html:not(.otw-hover) body * { background-color: transparent !important; background-image: none !important; }
+  html:not(.otw-hover) body * {
+    background-color: transparent !important;
+    background-image: none !important;
+    /* Twitch frosts chat behind a backdrop blur. Transparent still looks hazy
+       with that left on, because it blurs the video showing through. */
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
   html:not(.otw-hover) .chat-room__content { background-color: var(--otw-bg) !important; }
 
   /* Hovering brings the real, solid chat back. --otw-solid is pushed in from
@@ -373,12 +400,26 @@
   html:not(.otw-hover) .scrollable-area { scrollbar-width: none; }
   html:not(.otw-hover) .scrollable-area::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
 
-  html:not(.otw-hover) .chat-line__message {
-    font-family: var(--otw-font-family); font-size: var(--otw-font-size);
-    font-weight: var(--otw-font-weight); color: var(--otw-color);
-    text-shadow: var(--otw-outline); line-height: calc(var(--otw-font-size) * 1.45);
+  /* !important throughout: Twitch styles message text with selectors more
+     specific than this one, and losing the outline is what makes chat
+     unreadable over bright video. */
+  html:not(.otw-hover) .chat-line__message,
+  html:not(.otw-hover) .chat-line__message .text-fragment,
+  html:not(.otw-hover) .chat-line__message [data-a-target="chat-message-text"] {
+    font-family: var(--otw-font-family) !important;
+    font-size: var(--otw-font-size) !important;
+    font-weight: var(--otw-font-weight) !important;
+    color: var(--otw-color) !important;
+    text-shadow: var(--otw-outline) !important;
   }
-  html:not(.otw-hover) .chat-line__message .tw-elevation-1 { box-shadow: none !important; }
+  html:not(.otw-hover) .chat-line__message { line-height: calc(var(--otw-font-size) * 1.45) !important; }
+
+  /* Usernames keep their colour but need the same outline to stay legible. */
+  html:not(.otw-hover) .chat-line__message .chat-line__username,
+  html:not(.otw-hover) .chat-line__message .chat-author__display-name,
+  html:not(.otw-hover) .chat-line__message .message-author__display-name {
+    text-shadow: var(--otw-outline) !important;
+  }
 
   html.otw-hide-stamps [class*="timestamp" i] { display: none !important; }
   html.otw-hide-users .chat-line__username-container,
