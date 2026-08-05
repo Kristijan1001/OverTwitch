@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.1.1
+// @version      1.1.2
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Opens automatically, settings apply to every channel, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -66,7 +66,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.1.1';
+  const VERSION = '1.1.2';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -254,6 +254,7 @@
     rightControls: '.player-controls__right-control-group',
     liveChat: 'section.chat-room, .chat-room__content',
     vodChat: '.video-chat',
+    scroller: '.chat-list--default .scrollable-area, .video-chat__message-list-wrapper',
     pausedResume: '.chat-paused-footer--button',
     pausedFooter: '.chat-paused-footer',
     claimable: '.claimable-bonus__icon',
@@ -329,7 +330,6 @@
     position: absolute; display: none; z-index: 15;
     min-width: 160px; min-height: 90px;
     overflow: hidden; border-radius: 4px;
-    contain: layout paint;
     --otw-bg: rgba(0,0,0,.25);
     --otw-font-size: 13px;
     --otw-font-family: inherit;
@@ -398,12 +398,14 @@
   .otw-frame.otw-hide-users .seventv-chat-user,
   .otw-frame.otw-hide-users .vod-message__header { display: none !important; }
 
-  .otw-frame.otw-hide-stamps .chat-line__timestamp,
-  .otw-frame.otw-hide-stamps .message__timestamp,
-  .otw-frame.otw-hide-stamps .vcml-message__timestamp,
-  .otw-frame.otw-hide-stamps .vod-message__header__timestamp,
-  .otw-frame.otw-hide-stamps .seventv-chat-message-timestamp,
-  .otw-frame.otw-hide-stamps [data-a-target="chat-timestamp"] { display: none !important; }
+  /* Match any class containing "timestamp" rather than naming them. Twitch has
+     at least three chat renderers (chat-line__timestamp, message__timestamp,
+     vcml-message__timestamp — VOD replay uses its own), third-party emote
+     extensions add more, and naming them one at a time kept missing cases.
+     Nothing inside the overlay is anything but chat, so this cannot overreach. */
+  .otw-frame.otw-hide-stamps [class*="timestamp" i],
+  .otw-frame.otw-hide-stamps [data-a-target="chat-timestamp"],
+  .otw-frame.otw-hide-stamps .vod-message__header { display: none !important; }
 
   /* ---- drag bar ---- */
   .otw-bar {
@@ -805,9 +807,24 @@
      * the newest message would be worse than leaving it paused.
      */
     const resumeIfPaused = () => {
-      if (frame.classList.contains('otw-hover')) return;
+      if (frame.classList.contains('otw-hover')) return; // they may be reading back
+
+      // Tell React we want to follow again...
       const resume = host.querySelector(SEL.pausedResume) || host.querySelector(SEL.pausedFooter);
       if (resume) resume.click(); // works even while the footer is hidden idle
+
+      /*
+       * ...and actually put the view at the bottom. Clicking resume alone is not
+       * enough: relocating chat changes the scroller's height, which leaves
+       * scrollTop stale, so new messages land below the visible area and chat
+       * looks frozen even though it is live. Pinning to the very bottom is the
+       * un-paused position, so it cannot re-trigger the pause that scrolling
+       * *up* causes.
+       */
+      for (const scroller of host.querySelectorAll(SEL.scroller)) {
+        const distanceFromBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+        if (distanceFromBottom > 2) scroller.scrollTop = scroller.scrollHeight;
+      }
     };
 
     /* --- enable / disable ----------------------------------------------
