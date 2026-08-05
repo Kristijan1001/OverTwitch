@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.1.3
+// @version      1.2.0
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Opens automatically, settings apply to every channel, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -66,7 +66,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.1.3';
+  const VERSION = '1.2.0';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -254,7 +254,6 @@
     rightControls: '.player-controls__right-control-group',
     liveChat: 'section.chat-room, .chat-room__content',
     vodChat: '.video-chat',
-    scroller: '.chat-list--default .scrollable-area, .video-chat__message-list-wrapper',
     pausedResume: '.chat-paused-footer--button',
     pausedFooter: '.chat-paused-footer',
     claimable: '.claimable-bonus__icon',
@@ -731,7 +730,6 @@
       claimTimer: 0,
       resumeTimer: 0,
       lastFrameHeight: 0,
-      claimObserver: null,
       modals: [],
       destroyed: false,
     };
@@ -753,23 +751,24 @@
 
     /* --- auto-claim channel points ------------------------------------- */
     const claimNow = () => {
-      const button = document.querySelector(SEL.claimable);
+      // Scoped to our own chat node, not the whole document.
+      const button = (state.detached?.node || host).querySelector(SEL.claimable);
       if (button) button.click(); // works even while the bonus stack is display:none
     };
+    /*
+     * A plain poll, deliberately. This used to be a MutationObserver with
+     * subtree:true on the chat root, which fired a document-wide querySelector
+     * for every mutation batch — on a busy channel that is hundreds of full
+     * document queries a second, all of it on the main thread that Twitch needs
+     * to render chat. The bonus chest sits there for minutes, so checking every
+     * few seconds finds it just as reliably for none of the cost.
+     */
     const setAutoClaim = on => {
-      state.claimObserver?.disconnect();
-      state.claimObserver = null;
       clearInterval(state.claimTimer);
       state.claimTimer = 0;
       if (!on) return;
       claimNow();
-      const root = state.detached?.node || document.querySelector('.chat-room__content');
-      if (root) {
-        state.claimObserver = new MutationObserver(claimNow);
-        state.claimObserver.observe(root, { childList: true, subtree: true });
-      }
-      // Backstop for the case where the bonus renders outside the observed root.
-      state.claimTimer = setInterval(claimNow, 15000);
+      state.claimTimer = setInterval(claimNow, 3000);
     };
 
     /* --- attach / detach the real chat --------------------------------- */
@@ -821,6 +820,25 @@
       frame.style.bottom = bottom;
     };
 
+    /*
+     * Twitch's chat scroller is a class component holding `isPaused` plus
+     * `resumeAndScroll()`. Reaching it through the React fiber is the only way
+     * to ask rather than guess. Entirely optional: everything degrades to the
+     * visible "Chat paused due to scroll" button if Twitch's internals move.
+     */
+    const twitchScroller = () => {
+      try {
+        const el = host.querySelector('.chat-list--default .scrollable-area');
+        if (!el) return null;
+        const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
+        let fiber = key && el[key];
+        for (let i = 0; i < 14 && fiber; i++, fiber = fiber.return) {
+          if (fiber.stateNode?.state && 'isPaused' in fiber.stateNode.state) return fiber.stateNode;
+        }
+      } catch (e) { /* Twitch changed shape; the footer button still works */ }
+      return null;
+    };
+
     const resumeIfPaused = () => {
       if (frame.classList.contains('otw-hover')) return; // they may be reading back
 
@@ -835,21 +853,19 @@
         nudgeRemeasure();
       }
 
-      // Tell React we want to follow again...
-      const resume = host.querySelector(SEL.pausedResume) || host.querySelector(SEL.pausedFooter);
-      if (resume) resume.click(); // works even while the footer is hidden idle
-
       /*
-       * ...and actually put the view at the bottom. Clicking resume alone is not
-       * enough: relocating chat changes the scroller's height, which leaves
-       * scrollTop stale, so new messages land below the visible area and chat
-       * looks frozen even though it is live. Pinning to the very bottom is the
-       * un-paused position, so it cannot re-trigger the pause that scrolling
-       * *up* causes.
+       * Ask Twitch's own scroller whether it is paused, rather than inferring it
+       * from scroll offsets and forcing scrollTop. Measured directly, relocating
+       * chat does NOT pause it — so that forcing was solving a problem that did
+       * not exist, while risking the very pause it was afraid of.
        */
-      for (const scroller of host.querySelectorAll(SEL.scroller)) {
-        const distanceFromBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-        if (distanceFromBottom > 2) scroller.scrollTop = scroller.scrollHeight;
+      const scroller = twitchScroller();
+      if (scroller?.state?.isPaused) {
+        try { scroller.resumeAndScroll(); return; } catch (e) { /* fall through */ }
+      }
+      if (!scroller) {
+        const resume = host.querySelector(SEL.pausedResume) || host.querySelector(SEL.pausedFooter);
+        if (resume) resume.click();
       }
     };
 
@@ -955,7 +971,7 @@
     state.destroy = () => {
       if (state.destroyed) return;
       state.destroyed = true;
-      state.claimObserver?.disconnect();
+
       clearInterval(state.claimTimer);
       clearInterval(state.resumeTimer);
       restoreChat();
@@ -1234,6 +1250,61 @@
     event.preventDefault();
     session.setEnabled(!overlayEnabled, true);
   };
+
+  /*
+   * Run `OverTwitch.diagnose()` in the console and paste the result into an
+   * issue. It samples for five seconds and reports whether messages are
+   * arriving at all versus arriving and not being shown — which is the one
+   * thing that cannot be told apart by looking at a frozen overlay.
+   */
+  const diagnose = async () => {
+    const frame = document.querySelector('.otw-frame');
+    const host = frame?.querySelector('.otw-host');
+    const chat = host?.querySelector('.chat-room__content, .video-chat');
+    const scrollEl = host?.querySelector('.chat-list--default .scrollable-area');
+    const count = () => document.querySelectorAll('.chat-line__message, .vod-message').length;
+
+    const before = count();
+    const beforeScroll = scrollEl ? Math.round(scrollEl.scrollTop) : null;
+    await new Promise(r => setTimeout(r, 5000));
+    const after = count();
+
+    let paused = null;
+    try {
+      const key = scrollEl && Object.keys(scrollEl).find(k => k.startsWith('__reactFiber$'));
+      let fiber = key && scrollEl[key];
+      for (let i = 0; i < 14 && fiber; i++, fiber = fiber.return) {
+        if (fiber.stateNode?.state && 'isPaused' in fiber.stateNode.state) { paused = fiber.stateNode.state.isPaused; break; }
+      }
+    } catch (e) { paused = 'unreadable'; }
+
+    const report = {
+      version: VERSION,
+      page: location.pathname,
+      overlayOn: document.body.classList.contains('otw-on'),
+      chatIsInOverlay: !!chat,
+      messagesBefore: before,
+      messagesAfter: after,
+      messagesArriving: after > before,
+      twitchSaysPaused: paused,
+      frameSize: frame ? `${frame.clientWidth}x${frame.clientHeight}` : null,
+      scrollerSize: scrollEl ? `${scrollEl.clientWidth}x${scrollEl.clientHeight}` : null,
+      scrollerContentHeight: scrollEl ? Math.round(scrollEl.scrollHeight) : null,
+      scrollTopBefore: beforeScroll,
+      scrollTopAfter: scrollEl ? Math.round(scrollEl.scrollTop) : null,
+      documentHidden: document.hidden,
+    };
+    report.reading = !report.chatIsInOverlay ? 'chat is not in the overlay'
+      : report.messagesArriving ? 'messages ARE arriving — this is a display/scroll problem'
+      : paused === true ? 'chat is paused — resume is not taking effect'
+      : 'no messages arrived in 5s — chat is not receiving, not a display problem';
+    console.log(TAG, 'diagnose:', report);
+    return report;
+  };
+
+  try {
+    Object.defineProperty(window, 'OverTwitch', { value: { diagnose, version: VERSION }, configurable: true });
+  } catch (e) { /* sandboxed; the console helper is a nicety */ }
 
   injectStyle();
   document.addEventListener('keydown', onHotkey, true);
