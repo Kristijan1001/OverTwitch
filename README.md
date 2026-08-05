@@ -53,6 +53,11 @@ video), with **timestamps hidden** and **auto-claim on**.
   chat mounted when the right column is collapsed, so you get the full-width video with chat
   floating on top of it. The script never touches Twitch's collapse button.
 - Works on live channels and VODs. Clips, the dashboard and popout chat are skipped.
+- Twitch pauses its own chat scroller whenever it thinks you have scrolled up, and moving chat
+  into a differently sized box can trigger that on its own. While your mouse is off the overlay
+  the script resumes it for you, so idle chat never sits there frozen. While you are hovering it
+  leaves you alone — you may be reading back — and Twitch's own "Chat paused due to scroll"
+  button is right there and works normally.
 - Third-party emote extensions (7TV, BetterTTV, FrankerFaceZ) work automatically, because
   the overlay shows the same DOM they already decorated.
 - Auto-claim clicks the channel-point bonus while the overlay is on.

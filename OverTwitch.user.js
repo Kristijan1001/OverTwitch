@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.1.0
+// @version      1.1.1
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Opens automatically, settings apply to every channel, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -66,7 +66,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -254,7 +254,8 @@
     rightControls: '.player-controls__right-control-group',
     liveChat: 'section.chat-room, .chat-room__content',
     vodChat: '.video-chat',
-    scroller: '.chat-list--default .scrollable-area, .video-chat__message-list-wrapper',
+    pausedResume: '.chat-paused-footer--button',
+    pausedFooter: '.chat-paused-footer',
     claimable: '.claimable-bonus__icon',
   };
 
@@ -726,6 +727,7 @@
       pendingUntil: Date.now() + 20000, // grace window for chat to finish rendering
       reattachedAt: [],   // timestamps, for the re-attach circuit breaker
       claimTimer: 0,
+      resumeTimer: 0,
       claimObserver: null,
       modals: [],
       destroyed: false,
@@ -791,9 +793,21 @@
       }
     };
 
-    const scrollToBottom = () => {
-      const scroller = host.querySelector(SEL.scroller);
-      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    /*
+     * Twitch pauses its scroller as soon as it believes you have scrolled up,
+     * and moving the chat node into a differently sized box is enough to
+     * convince it. Forcing `scrollTop` was what put it into that state in the
+     * first place, so use Twitch's own resume control instead — the same
+     * "Chat paused due to scroll" button the user sees.
+     *
+     * Only ever done while the overlay is idle: if the pointer is on the
+     * overlay the user may be deliberately reading back, and yanking them to
+     * the newest message would be worse than leaving it paused.
+     */
+    const resumeIfPaused = () => {
+      if (frame.classList.contains('otw-hover')) return;
+      const resume = host.querySelector(SEL.pausedResume) || host.querySelector(SEL.pausedFooter);
+      if (resume) resume.click(); // works even while the footer is hidden idle
     };
 
     /* --- enable / disable ----------------------------------------------
@@ -819,7 +833,7 @@
         state.pendingUntil = 0;
         document.body.classList.add('otw-on');
         applyAll(state.settings);
-        requestAnimationFrame(scrollToBottom);
+        requestAnimationFrame(resumeIfPaused);
       } else {
         state.pendingUntil = 0;
         document.body.classList.remove('otw-on');
@@ -841,12 +855,24 @@
       setEnabled(true, true);
     });
 
-    frame.addEventListener('mouseenter', () => { frame.classList.add('otw-hover'); scrollToBottom(); });
-    frame.addEventListener('mouseleave', () => frame.classList.remove('otw-hover'));
-    // Keep clicks inside chat from pausing the video.
-    frame.addEventListener('click', e => e.stopPropagation());
+    /* A pause can also arrive later — a resize, a fullscreen change, a burst of
+       messages — and an idle overlay showing frozen chat is the whole failure
+       the user sees. Sweep for it. */
+    state.resumeTimer = setInterval(resumeIfPaused, 1500);
+
+    frame.addEventListener('mouseenter', () => frame.classList.add('otw-hover'));
+    frame.addEventListener('mouseleave', () => { frame.classList.remove('otw-hover'); resumeIfPaused(); });
+
+    /*
+     * Nothing else is stopped here on purpose. React delegates its listeners to
+     * the app root, which is an ancestor of this frame, so calling
+     * stopPropagation on the frame silently killed every interactive element in
+     * chat — the "Chat paused due to scroll" button, viewer cards, mod actions.
+     * Twitch's play/pause click target is a *sibling* of the frame, not an
+     * ancestor, so clicks in here never reached it anyway. Double click is the
+     * one exception: it toggles fullscreen from further up the tree.
+     */
     frame.addEventListener('dblclick', e => e.stopPropagation());
-    frame.addEventListener('pointerdown', e => e.stopPropagation());
 
     /* --- drag & resize -------------------------------------------------- */
     const persistPosition = rect => {
@@ -880,6 +906,7 @@
       state.destroyed = true;
       state.claimObserver?.disconnect();
       clearInterval(state.claimTimer);
+      clearInterval(state.resumeTimer);
       restoreChat();
       frame.remove();
       toggleBtn.remove();
