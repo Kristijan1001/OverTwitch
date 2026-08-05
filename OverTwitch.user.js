@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.0.0
+// @version      1.0.1
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Per-channel settings, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -49,10 +49,10 @@
       hide the entire message, since a message has a single wrapper child.
     • No bundled dependencies (MicroModal / iro.js are replaced with ~100 lines).
 
-  Known constraint (inherited, not fixable from a userscript): Twitch unmounts
-  the chat component when you collapse the right column, so the column has to
-  stay expanded. Enabling the overlay re-expands it for you. In fullscreen and
-  theater mode the column is out of view anyway, which is the point.
+  The sidebar can stay collapsed — that is in fact the best way to run this,
+  since the video then gets the full width. Twitch keeps chat mounted when the
+  right column is collapsed, and moving that node into the overlay is stable.
+  The script never touches Twitch's collapse button.
 
   Shortcut: Alt+C toggles the overlay.
 */
@@ -62,7 +62,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -231,8 +231,6 @@
     rightControls: '.player-controls__right-control-group',
     liveChat: 'section.chat-room, .chat-room__content',
     vodChat: '.video-chat',
-    rightColumn: '.channel-root__right-column',
-    collapseBtn: '[data-a-target="right-column__toggle-collapse-btn"]',
     scroller: '.chat-list--default .scrollable-area, .video-chat__message-list-wrapper',
     claimable: '.claimable-bonus__icon',
   };
@@ -292,15 +290,14 @@
     return content ? content.parentElement : null;
   };
 
-  const isSidebarCollapsed = () => {
-    const column = document.querySelector(SEL.rightColumn);
-    return !!column && !column.classList.contains('channel-root__right-column--expanded');
-  };
-
-  const expandSidebar = () => {
-    const btn = document.querySelector(SEL.collapseBtn);
-    if (btn && isSidebarCollapsed()) btn.click();
-  };
+  /*
+   * Deliberately absent: anything that clicks Twitch's own sidebar collapse
+   * button. Twitch keeps the chat component mounted when the right column is
+   * collapsed, so the overlay works fine with the sidebar shut — which is the
+   * better way to run it, since the video then gets the full width. Driving
+   * that button from the poll loop fought the user's own setting once a second
+   * and made chat flicker in and out.
+   */
 
   /* ------------------------------------------------------------------ *
    * Stylesheet — injected once. Everything that varies per user is a CSS
@@ -709,7 +706,10 @@
       host,
       toggleBtn,
       overlay,
-      detached: null,   // { node, parent, next }
+      detached: null,     // { node, parent, next }
+      everAttached: false,
+      pendingUntil: Date.now() + 20000, // grace window for chat to finish rendering
+      reattachedAt: [],   // timestamps, for the re-attach circuit breaker
       claimTimer: 0,
       claimObserver: null,
       modals: [],
@@ -755,13 +755,10 @@
     /* --- attach / detach the real chat --------------------------------- */
     const attachChat = () => {
       if (state.detached) return true;
-      if (isSidebarCollapsed()) {
-        expandSidebar();
-        return false; // the poll will retry once React has remounted chat
-      }
       const node = findChatNode(target.kind);
-      if (!node) return false;
+      if (!node) return false; // chat has not rendered yet; caller decides whether to retry
       state.detached = { node, parent: node.parentElement, next: node.nextSibling };
+      state.everAttached = true;
       host.append(node);
       if (state.settings.autoClaim) setAutoClaim(true);
       return true;
@@ -784,23 +781,43 @@
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
     };
 
-    /* --- enable / disable ---------------------------------------------- */
+    /* --- enable / disable ----------------------------------------------
+     * Turning on only counts once the chat node is actually in our hands, so
+     * a failed attach can never leave an empty translucent box on the video.
+     * @returns {boolean} whether the requested state was reached
+     */
     const setEnabled = on => {
-      overlayEnabled = on;
-      document.body.classList.toggle('otw-on', on);
+      overlayEnabled = on; // the user's intent, which survives navigation
       if (on) {
-        if (!attachChat()) return;
+        if (!attachChat()) {
+          // Never leave an empty translucent box floating on the video.
+          document.body.classList.remove('otw-on');
+          return false;
+        }
+        state.pendingUntil = 0;
+        document.body.classList.add('otw-on');
         applyAll(state.settings);
         requestAnimationFrame(scrollToBottom);
       } else {
+        state.pendingUntil = 0;
+        document.body.classList.remove('otw-on');
         frame.classList.remove('otw-hover');
         restoreChat();
         setAutoClaim(false);
       }
+      return true;
     };
     state.setEnabled = setEnabled;
 
-    toggleBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); setEnabled(!overlayEnabled); });
+    toggleBtn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (overlayEnabled) { setEnabled(false); return; }
+      // Chat may still be rendering right after a page load: keep trying for a
+      // short, bounded window rather than forever.
+      state.pendingUntil = Date.now() + 10000;
+      setEnabled(true);
+    });
 
     frame.addEventListener('mouseenter', () => { frame.classList.add('otw-hover'); scrollToBottom(); });
     frame.addEventListener('mouseleave', () => frame.classList.remove('otw-hover'));
@@ -1055,13 +1072,41 @@
       if (session.target.key !== target.key) teardown();
       else if (!session.toggleBtn.isConnected || !session.frame.isConnected) teardown(); // React replaced the player
       else {
-        // Chat can be unmounted underneath us (sidebar collapse, reconnect).
-        if (overlayEnabled && session.detached && !session.detached.node.isConnected) {
-          session.detached = null;
-          session.setEnabled(true);
-        } else if (overlayEnabled && !session.detached) {
-          session.setEnabled(true);
+        const now = Date.now();
+        if (!overlayEnabled || (session.detached && session.detached.node.isConnected)) return;
+
+        /*
+         * Enabled but holding nothing, and we never managed to attach here:
+         * chat is probably still rendering (fresh load, or a navigation with
+         * the overlay carried over). Retry quietly until the grace window
+         * closes, then stop rather than spin.
+         */
+        if (!session.everAttached) {
+          if (now < session.pendingUntil) session.setEnabled(true);
+          else {
+            warn('chat did not render on this page — leaving the overlay off');
+            session.setEnabled(false);
+          }
+          return;
         }
+
+        /*
+         * We had the chat node and lost it: a reconnect, or the column being
+         * collapsed out from under us. One or two re-attaches are worth it, but
+         * this must never become a loop — if Twitch rebuilds chat as fast as we
+         * claim it, both sides thrash and the user sees chat flickering (which
+         * is exactly what the old expandSidebar poll caused). Give up instead.
+         */
+        session.reattachedAt = session.reattachedAt.filter(t => now - t < 15000);
+        if (session.reattachedAt.length >= 3) {
+          warn('chat keeps being rebuilt — switching the overlay off instead of fighting it');
+          session.detached = null;
+          session.setEnabled(false);
+          return;
+        }
+        session.reattachedAt.push(now);
+        session.detached = null;
+        session.setEnabled(true);
         return;
       }
     }

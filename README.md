@@ -43,10 +43,9 @@ the complete chat back so names stay clickable.
 
 ## Notes and limits
 
-- **The chat sidebar has to stay expanded.** Twitch unmounts the whole chat component when
-  you collapse the right column, and no userscript can keep it alive through that. Turning
-  the overlay on re-expands the column for you. In fullscreen and theater mode the column is
-  off-screen anyway, which is the entire point of the overlay.
+- **Collapse the chat sidebar if you like — that's the best way to run it.** Twitch keeps
+  chat mounted when the right column is collapsed, so you get the full-width video with chat
+  floating on top of it. The script never touches Twitch's collapse button.
 - Works on live channels and VODs. Clips, the dashboard and popout chat are skipped.
 - Third-party emote extensions (7TV, BetterTTV, FrankerFaceZ) work automatically, because
   the overlay shows the same DOM they already decorated.
