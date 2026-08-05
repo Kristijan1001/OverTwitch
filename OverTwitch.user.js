@@ -5,6 +5,8 @@
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Per-channel settings, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
+// @homepageURL  https://github.com/Kristijan1001/OverTwitch
+// @supportURL   https://github.com/Kristijan1001/OverTwitch/issues
 // @match        https://www.twitch.tv/*
 // @exclude      https://www.twitch.tv/popout/*
 // @exclude      https://www.twitch.tv/embed/*
