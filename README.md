@@ -38,8 +38,12 @@ auto-claiming channel points.
 Settings are stored **per channel**. Whatever you apply last also becomes the default that
 new channels inherit. VODs share their channel's settings.
 
-Usernames and timestamps hide only while the overlay is idle — hovering always gives you
-the complete chat back so names stay clickable.
+Hiding usernames or timestamps applies all the time, hovered as well as idle.
+
+Out of the box the overlay is **fully transparent** when idle (just outlined message text over
+the video), with **timestamps hidden** and **auto-claim on**. If you have already saved settings
+for a channel, those win over the defaults — hit **Reset to defaults** in the ⚙ panel to pick
+up the new ones.
 
 ## Notes and limits
 

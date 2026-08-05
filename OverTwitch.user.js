@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.0.1
+// @version      1.0.2
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Per-channel settings, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -62,7 +62,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.0.1';
+  const VERSION = '1.0.2';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -118,7 +118,7 @@
 
   const DEFAULTS = Object.freeze({
     position: { left: 77, top: 6, right: 1.5, bottom: 8 }, // percentages of the player box
-    background: 'rgba(0, 0, 0, 0.25)',
+    background: 'rgba(0, 0, 0, 0)',  // fully transparent when idle; the outline keeps text legible
     font: {
       family: '',            // '' means inherit Twitch's own font
       size: 13,
@@ -127,8 +127,8 @@
       outline: 'rgba(0, 0, 0, 1)',
     },
     hideUsernames: false,
-    hideTimestamps: false,
-    autoClaim: false,
+    hideTimestamps: true,
+    autoClaim: true,
   });
 
   const DEFAULT_KEY = '__default__';
@@ -382,11 +382,24 @@
   .otw-frame:not(.otw-hover) .chat-line__message .tw-elevation-1,
   .otw-frame:not(.otw-hover) .chat-line__message [class*="chat-line__message--"] { box-shadow: none !important; }
 
-  .otw-frame.otw-hide-users:not(.otw-hover) .chat-line__username-container,
-  .otw-frame.otw-hide-users:not(.otw-hover) .chat-line__username-container + span,
-  .otw-frame.otw-hide-users:not(.otw-hover) .vod-message__header { display: none !important; }
-  .otw-frame.otw-hide-stamps:not(.otw-hover) .chat-line__timestamp,
-  .otw-frame.otw-hide-stamps:not(.otw-hover) .vod-message__header__timestamp { display: none !important; }
+  /* Hiding applies hovered as well as idle: "hide timestamps" means hide them,
+     not "hide them until you touch the overlay". Covers both of Twitch's chat
+     renderers (chat-line__* and the newer message-author__*) plus 7TV. */
+  .otw-frame.otw-hide-users .chat-line__username-container,
+  .otw-frame.otw-hide-users .chat-line__username-container + span,
+  .otw-frame.otw-hide-users .chat-author__display-name,
+  .otw-frame.otw-hide-users .chat-author__intl-login,
+  .otw-frame.otw-hide-users .message-author__display-name,
+  .otw-frame.otw-hide-users .message-author__username,
+  .otw-frame.otw-hide-users .seventv-chat-user,
+  .otw-frame.otw-hide-users .vod-message__header { display: none !important; }
+
+  .otw-frame.otw-hide-stamps .chat-line__timestamp,
+  .otw-frame.otw-hide-stamps .message__timestamp,
+  .otw-frame.otw-hide-stamps .vcml-message__timestamp,
+  .otw-frame.otw-hide-stamps .vod-message__header__timestamp,
+  .otw-frame.otw-hide-stamps .seventv-chat-message-timestamp,
+  .otw-frame.otw-hide-stamps [data-a-target="chat-timestamp"] { display: none !important; }
 
   /* ---- drag bar ---- */
   .otw-bar {
