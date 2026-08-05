@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.2.1
+// @version      1.2.2
 // @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Opens automatically, settings apply to every channel, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -66,7 +66,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.2.1';
+  const VERSION = '1.2.2';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -344,14 +344,18 @@
 
   .otw-host { position: absolute; inset: 0; display: flex; flex-direction: column; }
 
-  /* Make Twitch's chat fill the frame: every wrapper on the path to the
-     message scroller has to be a zero-min-height flex child. */
-  .otw-host > .chat-room,
-  .otw-host > .video-chat { flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; display: flex; flex-direction: column; background: transparent !important; }
-  .otw-host .chat-room__content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: transparent !important; }
-  .otw-host .chat-list--default { flex: 1 1 auto; min-height: 0; }
-  .otw-host .video-chat__message-list-wrapper { flex: 1 1 auto; min-height: 0; }
-  .otw-host .chat-input { max-height: 45%; overflow-y: auto; flex: 0 0 auto; }
+  /*
+   * Size the moved element and then get out of the way. Twitch already lays
+   * chat out as a flex column — .chat-room__content is display:flex and
+   * .chat-list--default is flex:1 1 auto in its own stylesheet — so the deep
+   * flex/min-height overrides that used to live here only re-declared Twitch's
+   * layout on top of itself, and overriding the boxes its scroller measures is
+   * a good way to break the "am I at the bottom" check that drives auto-scroll.
+   * The original extension never touched any of this either.
+   */
+  .otw-host > * { width: 100%; height: 100%; background: transparent !important; }
+  .otw-host .chat-room__content { overflow-x: hidden; background: transparent !important; }
+  .otw-host .chat-input { max-height: 45%; overflow-y: auto; }
   /* drops / hype train / channel-point stack: out of the way when idle, back on hover */
   .otw-frame:not(.otw-hover) .otw-host .chat-room__content > *:first-child { display: none; }
 
