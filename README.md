@@ -62,27 +62,29 @@ video), with **timestamps hidden** and **auto-claim on**.
   the overlay shows the same DOM they already decorated.
 - Auto-claim clicks the channel-point bonus while the overlay is on.
 
-## What changed from the original extension
+## How it works
 
-The original is a Chrome/Firefox extension built with webpack, MicroModal and iro.js. This
-is one file with no build step and no dependencies, and a few things were reworked on the way:
+Same architecture as the original, because the original's works:
 
-- **No iframe.** The extension's default mode loaded `twitch.tv/popout/<channel>/chat` in an
-  iframe and styled it from outside; a hidden option ("avoid iframes") relocated the real
-  chat instead, for performance and third-party emote support. That second path is now the
-  only path, so live and VODs share one code path and chat never connects twice.
-- **Updated selectors.** Twitch's message markup changed since the extension was written —
-  a `.chat-line__message` now has a single wrapper child, so the original's username rule
-  (`.chat-line__message > *:nth-child(-n+3)`) would hide the whole message. Usernames are
-  now matched by `.chat-line__username-container` and its colon separator.
-- **No listener leaks.** Drag and resize used six `document.body` listeners each, re-added
-  on every SPA navigation and never removed. They now use Pointer Events with pointer
-  capture, so nothing is attached outside the element being dragged.
-- **Plain JSON settings** instead of underscore-joined strings, which could not survive a
-  value containing an underscore and needed a migration hack for stored booleans.
-- **Live preview via CSS custom properties** on the overlay, rather than rewriting `<style>`
-  nodes on every change.
-- MicroModal and iro.js are replaced by a small modal and native colour + alpha inputs.
+- **Live** — an `<iframe>` pointing at `twitch.tv/popout/<channel>/chat`, floated over the
+  player and restyled from the outside. Same origin, so its document is fully reachable.
+  Twitch's chat page owns its whole document there: it lays out normally and scrolls itself.
+- **VODs** — the real `.video-chat` node is moved into the overlay, since a VOD has no popout
+  chat to point an iframe at.
+
+Version 1.x moved the live chat node too, on the theory that it was strictly better — one code
+path, no second connection, third-party emotes guaranteed. It isn't. Twitch's live chat drives
+its own auto-scroll against the box it was mounted in, so hosting it in a small repositioned
+container left it appending messages the viewport never scrolled to, which reads as chat being
+frozen. VODs were unaffected — exactly the live/VOD split the original's own code implies.
+
+The cost of the iframe is a second chat connection, and third-party emote add-ons only show up
+if they also run on popout chat. That's the trade the original makes by default.
+
+Other differences from the extension: one file with no build step and no dependencies
+(MicroModal and iro.js are replaced by a small modal and native colour inputs), plain JSON
+settings instead of underscore-joined strings, Pointer Events with pointer capture for
+drag/resize so nothing leaks across navigations, and selectors updated for Twitch's current DOM.
 
 ## Credits
 
