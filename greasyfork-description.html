@@ -12,7 +12,7 @@
   <li><strong>Anchored to the player</strong> — placement is stored as a percentage of the video, so it keeps its position and proportions in theater and fullscreen.</li>
   <li><strong>Drag &amp; resize</strong> — drag by the top bar, pull any edge or corner.</li>
   <li><strong>Live-preview settings</strong> — background colour and opacity, font family (including a custom one), size, colour, outline, weight, hide usernames, hide timestamps.</li>
-  <li><strong>Per-channel settings</strong> — every channel remembers its own layout; the last one you apply becomes the default new channels inherit. VODs share their channel's settings.</li>
+  <li><strong>Global settings</strong> — one set for every channel and VOD, so anything you change applies everywhere. No per-channel overrides to get out of sync.</li>
   <li><strong>Auto-claim channel points</strong> — optional, clicks the bonus chest for you.</li>
   <li><strong>Live streams and VODs</strong>, one code path, no iframe.</li>
 </ul>
@@ -29,6 +29,7 @@
   <li>Works on <code>twitch.tv</code> channel pages and VODs. Requires Tampermonkey or Violentmonkey.</li>
   <li><strong>Collapse Twitch's chat sidebar for the best result</strong> — the video goes full width and chat floats on top of it. The script never touches Twitch's collapse button or fights your layout.</li>
   <li>Defaults to a fully transparent overlay with timestamps hidden and auto-claim on. Hiding usernames or timestamps applies hovered as well as idle.</li>
+  <li><strong>Opens automatically</strong> — the on/off state is remembered across reloads and browser sessions, so leave it on once and it is just there.</li>
 </ul>
 
 <p><em>ISC licensed. Original concept by Pablo Bianciotto (akhanubis); userscript port by Kristijan1001.</em></p>

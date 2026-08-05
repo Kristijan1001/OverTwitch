@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      1.0.3
-// @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Per-channel settings, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
+// @version      1.1.0
+// @description  Puts Twitch's REAL chat on top of the player: transparent message text when idle, full interactive chat (input, badges, cards, mod actions, 7TV/BTTV/FFZ emotes) on hover. Drag, resize, restyle, works in fullscreen and theater, live and VODs. Opens automatically, settings apply to every channel, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
 // @homepageURL  https://github.com/Kristijan1001/OverTwitch
@@ -17,6 +17,8 @@
 // @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_listValues
+// @grant        GM_deleteValue
 // @license      ISC
 // ==/UserScript==
 
@@ -64,7 +66,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '1.0.3';
+  const VERSION = '1.1.0';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -111,6 +113,24 @@
           warn('settings write failed', e);
         }
       },
+      /** Delete every stored key matching `predicate`, across whichever backend is in use. */
+      async removeMatching(predicate) {
+        try {
+          if (typeof GM_listValues === 'function' && typeof GM_deleteValue === 'function') {
+            for (const key of GM_listValues()) if (predicate(key)) GM_deleteValue(key);
+          } else if (typeof GM !== 'undefined' && GM && typeof GM.listValues === 'function') {
+            for (const key of await GM.listValues()) if (predicate(key)) await GM.deleteValue(key);
+          }
+          // Always sweep localStorage too: earlier versions may have written
+          // there before the GM grants existed.
+          const prefix = `${NS}:`;
+          for (const key of Object.keys(localStorage)) {
+            if (key.startsWith(prefix) && predicate(key.slice(prefix.length))) localStorage.removeItem(key);
+          }
+        } catch (e) {
+          warn('could not clear old settings', e);
+        }
+      },
     };
   })();
 
@@ -134,6 +154,7 @@
   });
 
   const DEFAULT_KEY = '__default__';
+  const ENABLED_KEY = '__enabled__'; // remembered across reloads so the overlay opens on its own
 
   /** Deep-ish merge that only trusts keys and value shapes we know about. */
   const mergeSettings = (...sources) => {
@@ -156,20 +177,20 @@
     return out;
   };
 
-  const loadSettings = async channelKey => {
-    const [fallback, mine] = await Promise.all([
-      store.get(DEFAULT_KEY, null),
-      channelKey ? store.get(channelKey, null) : Promise.resolve(null),
-    ]);
-    return mergeSettings(fallback, mine);
-  };
+  /*
+   * One set of settings for every channel. The original extension stored them
+   * per channel and wrote a channel override on every save — including a plain
+   * drag or resize — so a channel you had merely nudged would silently outrank
+   * anything you changed later. Global is what people actually expect.
+   */
+  const loadSettings = async () => mergeSettings(await store.get(DEFAULT_KEY, null));
 
-  /* Saving writes both the channel key and the global default, so a fresh
-     channel inherits whatever you tuned last — same as the original. */
-  const saveSettings = async (channelKey, settings) => {
-    await store.set(DEFAULT_KEY, settings);
-    if (channelKey) await store.set(channelKey, settings);
-  };
+  const saveSettings = async settings => store.set(DEFAULT_KEY, settings);
+
+  /* Drop per-channel overrides left by earlier versions, which would otherwise
+     keep beating these settings on the channels that have them. */
+  const purgeLegacyOverrides = () =>
+    store.removeMatching(key => key.startsWith('ch:') || key.startsWith('vod:'));
 
   /* ------------------------------------------------------------------ *
    * Small helpers
@@ -244,8 +265,8 @@
   ]);
 
   /**
-   * `key` identifies the session (which page we are on). It is not where
-   * settings live — see resolveSettings, which maps a VOD onto its channel.
+   * `key` identifies the session, i.e. which page we are on. Settings are
+   * global, so it has nothing to do with where they are stored.
    * @returns {{kind:'live'|'vod', id:string, key:string}|null}
    */
   const detectTarget = () => {
@@ -258,26 +279,6 @@
     // /<channel>, /<channel>/home and squad views carry a player; /about, /schedule etc. do not.
     if (parts[1] && !['home', 'squad'].includes(parts[1])) return null;
     return { kind: 'live', id: name, key: `ch:${name}` };
-  };
-
-  /** The channel a VOD belongs to, so its settings sit with the live channel's. */
-  const resolveVodChannel = () => {
-    const scope = document.querySelector('.channel-info-content') || document;
-    for (const a of scope.querySelectorAll('a[href^="/"]')) {
-      const m = a.getAttribute('href').match(/^\/([a-z0-9_]+)(?:[/?#]|$)/i);
-      const name = m && m[1].toLowerCase();
-      if (name && !NON_CHANNEL.has(name)) return name;
-    }
-    return null;
-  };
-
-  /** Where this page's settings are stored, and what the Apply button says. */
-  const resolveSettings = target => {
-    if (target.kind === 'live') return { key: `ch:${target.id}`, label: target.id };
-    const channel = resolveVodChannel();
-    return channel
-      ? { key: `ch:${channel}`, label: channel }
-      : { key: null, label: `VOD ${target.id}` }; // unresolvable: read/write the global default only
   };
 
   /**
@@ -679,15 +680,15 @@
    * ------------------------------------------------------------------ */
 
   let session = null;
-  let overlayEnabled = false; // survives navigation, like the original
+  let overlayEnabled = false; // survives navigation, and is restored on boot
 
   const createSession = async target => {
     const overlay = document.querySelector(SEL.playerOverlay);
     const controls = document.querySelector(SEL.rightControls);
     if (!overlay || !controls) return null;
 
-    const { key: settingsKey, label } = resolveSettings(target);
-    const settings = await loadSettings(settingsKey);
+    const label = target.kind === 'vod' ? `VOD ${target.id}` : target.id;
+    const settings = await loadSettings();
 
     /* --- frame --------------------------------------------------------- */
     const host = el('div', { class: 'otw-host' });
@@ -714,7 +715,6 @@
     /* --- state --------------------------------------------------------- */
     const state = {
       target,
-      settingsKey,
       settings,
       saved: structuredClone(settings), // what's on disk, for Cancel
       frame,
@@ -801,7 +801,14 @@
      * a failed attach can never leave an empty translucent box on the video.
      * @returns {boolean} whether the requested state was reached
      */
-    const setEnabled = on => {
+    /*
+     * `persist` marks a deliberate user action, which is the only thing that
+     * should change what happens on the next page load. Automatic shutdowns —
+     * the circuit breaker, or chat never rendering — must not quietly turn
+     * auto-open off, or one bad page would disable it for good.
+     */
+    const setEnabled = (on, persist = false) => {
+      if (persist) store.set(ENABLED_KEY, on);
       overlayEnabled = on; // the user's intent, which survives navigation
       if (on) {
         if (!attachChat()) {
@@ -827,11 +834,11 @@
     toggleBtn.addEventListener('click', e => {
       e.preventDefault();
       e.stopPropagation();
-      if (overlayEnabled) { setEnabled(false); return; }
+      if (overlayEnabled) { setEnabled(false, true); return; }
       // Chat may still be rendering right after a page load: keep trying for a
       // short, bounded window rather than forever.
       state.pendingUntil = Date.now() + 10000;
-      setEnabled(true);
+      setEnabled(true, true);
     });
 
     frame.addEventListener('mouseenter', () => { frame.classList.add('otw-hover'); scrollToBottom(); });
@@ -844,7 +851,7 @@
     /* --- drag & resize -------------------------------------------------- */
     const persistPosition = rect => {
       state.settings.position = rect;
-      saveSettings(settingsKey, state.settings);
+      saveSettings(state.settings);
       state.saved = structuredClone(state.settings);
     };
     makeDraggable(frame, overlay, bar, { onEnd: persistPosition });
@@ -983,7 +990,7 @@
     const claim = segmented([['Off', 'false'], ['On', 'true']], v => { draft.autoClaim = v === 'true'; preview(); });
 
     const body = [
-      el('div', { class: 'otw-note', text: 'Saved per channel. Whatever you apply last also becomes the default for channels you have not customised.' }),
+      el('div', { class: 'otw-note', text: 'These settings apply to every channel and VOD. There are no per-channel overrides.' }),
       row('Placement', map, 'You can also drag the top bar and pull the edges of the overlay itself.'),
       row('Background', background.nodes, 'Shown when your mouse is away. Hovering restores the solid chat.'),
       row('Font', [familySelect, familyCustom]),
@@ -998,7 +1005,7 @@
 
     const resetBtn = el('button', { class: 'otw-btn', type: 'button', text: 'Reset to defaults' });
     const cancelBtn = el('button', { class: 'otw-btn', type: 'button', text: 'Cancel' });
-    const saveBtn = el('button', { class: 'otw-btn otw-primary', type: 'button', text: `Apply to ${label}` });
+    const saveBtn = el('button', { class: 'otw-btn otw-primary', type: 'button', text: 'Apply everywhere' });
     const aboutBtn = el('button', { class: 'otw-bar-btn', type: 'button', title: 'About', text: '?', style: 'font-weight:700' });
 
     const modal = createModal({
@@ -1032,7 +1039,7 @@
       Object.assign(state.settings, structuredClone(draft));
       state.saved = structuredClone(draft);
       applyAll(state.settings);
-      saveSettings(state.settingsKey, state.settings);
+      saveSettings(state.settings);
     });
     aboutBtn.addEventListener('click', () => modal.onAbout?.());
     modal.querySelector('.otw-modal-backdrop').addEventListener('click', () => cancelBtn.click());
@@ -1147,13 +1154,19 @@
     if (active && (active.isContentEditable || /^(input|textarea|select)$/i.test(active.tagName))) return;
     if (!session) return;
     event.preventDefault();
-    session.setEnabled(!overlayEnabled);
+    session.setEnabled(!overlayEnabled, true);
   };
 
   injectStyle();
   document.addEventListener('keydown', onHotkey, true);
-  setInterval(tick, 1000);
-  tick();
 
-  log(`v${VERSION} loaded`);
+  /* Restore the last on/off state before the first tick, so a page that was
+     left with the overlay open opens it again without a click. */
+  (async () => {
+    await purgeLegacyOverrides(); // before the first load, so nothing stale wins
+    overlayEnabled = (await store.get(ENABLED_KEY, false)) === true;
+    setInterval(tick, 1000);
+    tick();
+    log(`v${VERSION} loaded${overlayEnabled ? ' (overlay opens automatically)' : ''}`);
+  })();
 })();

@@ -35,15 +35,17 @@ Placement, background colour and opacity, font family (including a free-text cus
 field), size, colour, outline colour, weight, hiding usernames, hiding timestamps, and
 auto-claiming channel points.
 
-Settings are stored **per channel**. Whatever you apply last also becomes the default that
-new channels inherit. VODs share their channel's settings.
+**Settings are global.** One set for every channel and VOD — there are no per-channel
+overrides, so anything you change applies everywhere, including the position you drag the
+overlay to. Hiding usernames or timestamps applies all the time, hovered as well as idle.
 
-Hiding usernames or timestamps applies all the time, hovered as well as idle.
+**The overlay opens on its own.** Its on/off state is remembered, so if you leave it on it
+comes straight back on the next page and the next browser session, with no click. Turn it off
+and it stays off. Only your own toggling counts — if the script has to shut the overlay down
+by itself, that never changes what happens next time.
 
-Out of the box the overlay is **fully transparent** when idle (just outlined message text over
-the video), with **timestamps hidden** and **auto-claim on**. If you have already saved settings
-for a channel, those win over the defaults — hit **Reset to defaults** in the ⚙ panel to pick
-up the new ones.
+Out of the box it is **fully transparent** when idle (just outlined message text over the
+video), with **timestamps hidden** and **auto-claim on**.
 
 ## Notes and limits
 
