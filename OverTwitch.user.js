@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      2.0.1
+// @version      2.0.2
 // @description  Twitch chat on top of the player: transparent message text when idle, full solid chat on hover. Drag, resize, restyle. Works in fullscreen and theater, live and VODs. Opens automatically, settings apply everywhere, auto-claim channel points. Userscript port of Anu Twitch Chat Overlay.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -54,7 +54,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '2.0.1';
+  const VERSION = '2.0.2';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -349,15 +349,20 @@
   html:not(.otw-hover) .chat-input { display: none !important; }
   html:not(.otw-hover) .chat-line__icons { display: none !important; }
 
-  /* section.chat-room is the element that actually paints Twitch's solid chat
-     background — .chat-room__content and .chat-list--default above and below it
-     are already transparent, which is why styling only those left chat opaque.
-     Clear every layer and let exactly one carry the tint, so a translucent
-     colour is not stacked on itself. */
-  html:not(.otw-hover) .chat-room,
-  html:not(.otw-hover) .chat-list--default,
-  html:not(.otw-hover) .chat-scrollable-area__message-container { background: transparent !important; }
-  html:not(.otw-hover) .chat-room__content { background: var(--otw-bg) !important; }
+  /*
+   * While idle, nothing in the chat page may paint its own background. Naming
+   * Twitch's wrappers one at a time kept missing whichever one was actually
+   * opaque — and a logged-in session has more of them than a logged-out one, so
+   * a list that looks complete here is not complete everywhere. Clear the lot,
+   * then let exactly one element carry the tint, which also stops a translucent
+   * colour being composited over itself once per level.
+   *
+   * Specificity does the arbitration: the tint selector is (0,2,1) against
+   * (0,1,2) for the blanket rule, so it wins despite both being !important.
+   */
+  html:not(.otw-hover) body,
+  html:not(.otw-hover) body * { background-color: transparent !important; background-image: none !important; }
+  html:not(.otw-hover) .chat-room__content { background-color: var(--otw-bg) !important; }
 
   /* Hovering brings the real, solid chat back. --otw-solid is pushed in from
      the parent page, because the popout document defines Twitch's theme
@@ -529,7 +534,7 @@
       frame, host, toggleBtn, overlay,
       iframe: null, iframeDoc: null,
       vodChat: null,
-      claimTimer: 0, modals: [], destroyed: false,
+      claimTimer: 0, styleTimer: 0, modals: [], destroyed: false,
     };
 
     /* --- settings applied to whichever surface holds chat ---------------- */
@@ -572,26 +577,44 @@
         frameborder: '0',
         title: 'Twitch chat',
       });
-      iframe.addEventListener('load', () => {
-        try {
-          const doc = iframe.contentDocument; // same origin
-          if (!doc) { warn('chat iframe is not reachable'); return; }
-          state.iframeDoc = doc;
-          const style = doc.createElement('style');
-          style.id = 'otw-iframe-style';
-          style.textContent = IFRAME_CSS;
-          (doc.head || doc.documentElement).append(style);
-          syncTheme();
-          applyLook(state.settings);
-          doc.documentElement.classList.toggle('otw-hover', frame.classList.contains('otw-hover'));
-          log('chat iframe ready');
-        } catch (e) {
-          warn('could not style the chat iframe', e);
-        }
-      });
+      iframe.addEventListener('load', () => styleIframe('load'));
       host.append(iframe);
       state.iframe = iframe;
+      /*
+       * Don't rely on the load event alone. If it is missed — a re-render, a
+       * navigation inside the frame, a userscript sandbox quirk — the overlay
+       * shows the unmodified popout page, which is simply Twitch's solid chat
+       * sitting on the video. Cheap to keep checking; it no-ops once styled.
+       */
+      clearInterval(state.styleTimer);
+      state.styleTimer = setInterval(() => styleIframe('recheck'), 1000);
       return true;
+    };
+
+    /** Inject (or re-inject) our stylesheet into the popout document. */
+    const styleIframe = why => {
+      const iframe = state.iframe;
+      if (!iframe) return false;
+      let doc;
+      try { doc = iframe.contentDocument; } catch (e) { doc = null; } // same origin, so this should hold
+      if (!doc || !doc.documentElement) return false;
+      if (doc.getElementById('otw-iframe-style')) { state.iframeDoc = doc; return true; }
+      if (doc.readyState === 'loading') return false;
+      try {
+        state.iframeDoc = doc;
+        const style = doc.createElement('style');
+        style.id = 'otw-iframe-style';
+        style.textContent = IFRAME_CSS;
+        (doc.head || doc.documentElement).append(style);
+        syncTheme();
+        applyLook(state.settings);
+        doc.documentElement.classList.toggle('otw-hover', frame.classList.contains('otw-hover'));
+        log(`chat iframe styled (${why})`);
+        return true;
+      } catch (e) {
+        warn('could not style the chat iframe', e);
+        return false;
+      }
     };
 
     const syncTheme = () => {
@@ -692,6 +715,7 @@
       if (state.destroyed) return;
       state.destroyed = true;
       clearInterval(state.claimTimer);
+      clearInterval(state.styleTimer);
       restoreVodChat();
       frame.remove(); toggleBtn.remove();
       for (const m of state.modals) m.remove();
