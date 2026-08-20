@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OverTwitch - Cinematic Chat Overlay
 // @namespace    overtwitch-chat-overlay
-// @version      2.1.1
+// @version      2.1.3
 // @description  Twitch chat on top of the player: transparent message text when idle, full solid chat on hover. Drag, resize, restyle. Works in fullscreen and theater, live and VODs. Opens automatically, settings apply everywhere, auto-claim channel points.
 // @author       Kristijan1001
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitch.tv
@@ -52,7 +52,7 @@
 
   const TAG = '[OverTwitch]';
   const NS = 'otw';
-  const VERSION = '2.1.1';
+  const VERSION = '2.1.3';
   const HOME = 'https://github.com/Kristijan1001/OverTwitch';
 
   const log = (...a) => console.log(TAG, ...a);
@@ -109,7 +109,7 @@
     background: 'rgba(0, 0, 0, 0)',
     font: {
       family: '', size: 13, weight: 'normal',
-      color: 'rgba(255, 255, 255, 1)', outline: 'rgba(0, 0, 0, 1)',
+      color: 'rgba(255, 255, 255, 1)', outline: 'rgba(0, 0, 0, 1)', shadow: true,
     },
     hideUsernames: false,
     hideTimestamps: true,
@@ -202,7 +202,18 @@
     const n = m ? parseInt(m[1], 16) : 0;
     return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${round2(clamp(pct, 0, 100) / 100)})`;
   };
-  const outlineShadow = c => `-1px -1px 0 ${c}, 1px -1px 0 ${c}, 1px 1px 0 ${c}, -1px 1px 0 ${c}`;
+  /*
+   * OUTLINE + SHADOW — a real stroke, not four offset copies of the text.
+   * anu fakes the outline with four text-shadows (-1/-1, 1/-1, 1/1, -1/1). Each
+   * copy is anti-aliased on its own, so along curves and thin strokes they only
+   * partially overlap: alpha piles up unevenly and leaves speckled DOTS around
+   * the glyphs. Worst at small sizes, which is exactly chat.
+   * -webkit-text-stroke draws ONE continuous path, so nothing can speckle, and
+   * paint-order:stroke fill puts it UNDER the glyph so letterforms keep their
+   * weight. A 2px centred stroke shows ~1px outside = what the four offsets were
+   * going for. On top of that sits an optional movie-subtitle drop shadow; it is
+   * BLURRED, so it cannot reintroduce the dots the way hard-edged copies did.
+   */
 
   /* ------------------------------------------------------------------ *
    * Twitch page
@@ -273,7 +284,10 @@
   .otw-frame:not(.otw-hover) .vod-message {
     font-family: var(--otw-font-family); font-size: var(--otw-font-size);
     font-weight: var(--otw-font-weight); color: var(--otw-color);
-    text-shadow: var(--otw-outline); line-height: calc(var(--otw-font-size) * 1.45);
+    -webkit-text-stroke: var(--otw-stroke-w, 2px) var(--otw-stroke-c, #000);
+    paint-order: stroke fill;
+    text-shadow: var(--otw-shadow, none);
+    line-height: calc(var(--otw-font-size) * 1.45);
   }
   .otw-frame.otw-hide-stamps [class*="timestamp" i] { display: none !important; }
   .otw-frame.otw-hide-users .vod-message__header { display: none !important; }
@@ -411,7 +425,9 @@
     font-size: var(--otw-font-size) !important;
     font-weight: var(--otw-font-weight) !important;
     color: var(--otw-color) !important;
-    text-shadow: var(--otw-outline) !important;
+    -webkit-text-stroke: var(--otw-stroke-w, 2px) var(--otw-stroke-c, #000) !important;
+    paint-order: stroke fill !important;
+    text-shadow: var(--otw-shadow, none) !important;
   }
   html:not(.otw-hover) .chat-line__message { line-height: calc(var(--otw-font-size) * 1.45) !important; }
 
@@ -419,7 +435,9 @@
   html:not(.otw-hover) .chat-line__message .chat-line__username,
   html:not(.otw-hover) .chat-line__message .chat-author__display-name,
   html:not(.otw-hover) .chat-line__message .message-author__display-name {
-    text-shadow: var(--otw-outline) !important;
+    -webkit-text-stroke: var(--otw-stroke-w, 2px) var(--otw-stroke-c, #000) !important;
+    paint-order: stroke fill !important;
+    text-shadow: var(--otw-shadow, none) !important;
   }
 
   html.otw-hide-stamps [class*="timestamp" i] { display: none !important; }
@@ -589,7 +607,12 @@
         root.style.setProperty('--otw-font-size', `${s.font.size}px`);
         root.style.setProperty('--otw-font-weight', s.font.weight);
         root.style.setProperty('--otw-color', s.font.color);
-        root.style.setProperty('--otw-outline', parseRgba(s.font.outline).a > 0 ? outlineShadow(s.font.outline) : 'none');
+        // Outline opacity 0 means "no outline" -> zero-width stroke. See OUTLINE note.
+        const outlined = parseRgba(s.font.outline).a > 0;
+        root.style.setProperty('--otw-stroke-w', outlined ? '2px' : '0px');
+        root.style.setProperty('--otw-stroke-c', s.font.outline);
+        root.style.setProperty('--otw-shadow', s.font.shadow === false ? 'none'
+          : '0 2px 3px rgba(0,0,0,.95),0 4px 10px rgba(0,0,0,.6)');
         root.classList.toggle('otw-hide-users', !!s.hideUsernames);
         root.classList.toggle('otw-hide-stamps', !!s.hideTimestamps);
       }
@@ -838,6 +861,7 @@
     const users = segmented([['Show', 'false'], ['Hide', 'true']], v => { draft.hideUsernames = v === 'true'; preview(); });
     const stamps = segmented([['Show', 'false'], ['Hide', 'true']], v => { draft.hideTimestamps = v === 'true'; preview(); });
     const claim = segmented([['Off', 'false'], ['On', 'true']], v => { draft.autoClaim = v === 'true'; preview(); });
+    const shadow = segmented([['Off', 'false'], ['On', 'true']], v => { draft.font.shadow = v === 'true'; preview(); });
 
     const body = [
       el('div', { class: 'otw-note', text: 'These settings apply to every channel and VOD.' }),
@@ -847,6 +871,7 @@
       row('Font size', [sizeInput, el('span', { text: 'px', style: 'opacity:.6;font-size:12px' })]),
       row('Font colour', fontColour.nodes),
       row('Outline', outline.nodes, 'Set opacity to 0 for no outline.'),
+      row('Drop shadow', shadow.node, 'Soft movie-subtitle shadow beneath the outline.'),
       row('Font weight', weight.node),
       row('Usernames', users.node),
       row('Timestamps', stamps.node),
@@ -879,6 +904,7 @@
       users.set(String(!!draft.hideUsernames));
       stamps.set(String(!!draft.hideTimestamps));
       claim.set(String(!!draft.autoClaim));
+      shadow.set(String(draft.font.shadow !== false));
       applyAll(draft);
     };
 
